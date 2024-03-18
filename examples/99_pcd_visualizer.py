@@ -19,19 +19,19 @@ from viser.extras.colmap import (
     read_points3d_binary,
 )
 
-# plydata = PlyData.read('./assets/point_cloud.ply')
-# x = plydata['vertex']['x'][:50000].reshape(-1,1)
-# y = plydata['vertex']['y'][:50000].reshape(-1,1)
-# z = plydata['vertex']['z'][:50000].reshape(-1,1)
-# points = xyz = onp.concatenate([x,y,z], axis = 1)
-# print(xyz.shape)
+plydata = PlyData.read('./assets/point_cloud.ply')
+x = plydata['vertex']['x'][:50000].reshape(-1,1)
+y = plydata['vertex']['y'][:50000].reshape(-1,1)
+z = plydata['vertex']['z'][:50000].reshape(-1,1)
+points = xyz = onp.concatenate([x,y,z], axis = 1)
+print(xyz.shape)
 
-# C0 = 0.28209479177387814
-# r = 0.5 + C0 * plydata['vertex']['f_dc_0'][:50000].reshape(-1,1)
-# g = 0.5 + C0 * plydata['vertex']['f_dc_1'][:50000].reshape(-1,1)
-# b = 0.5 + C0 * plydata['vertex']['f_dc_2'][:50000].reshape(-1,1)
-# colors = rgb = onp.concatenate([r,g,b], axis = 1)
-# print(rgb.shape)
+C0 = 0.28209479177387814
+r = 0.5 + C0 * plydata['vertex']['f_dc_0'][:50000].reshape(-1,1)
+g = 0.5 + C0 * plydata['vertex']['f_dc_1'][:50000].reshape(-1,1)
+b = 0.5 + C0 * plydata['vertex']['f_dc_2'][:50000].reshape(-1,1)
+colors = rgb = onp.concatenate([r,g,b], axis = 1)
+print(rgb.shape)
 
 def main(
     colmap_path: Path = Path(__file__).parent / "assets/colmap_garden/sparse/0",
@@ -77,13 +77,13 @@ def main(
         """Send all COLMAP elements to viser for visualization. This could be optimized
         a ton!"""
         # Set the point cloud.
-        points = onp.array([points3d[p_id].xyz for p_id in points3d]) # (50000, 3)
-        colors = onp.array([points3d[p_id].rgb for p_id in points3d]) # (50000, 3)
-        points_selection = onp.random.choice(
-            points.shape[0], gui_points.value, replace=False
-        )
-        points = points[points_selection]
-        colors = colors[points_selection]
+        # points = onp.array([points3d[p_id].xyz for p_id in points3d]) # (50000, 3)
+        # colors = onp.array([points3d[p_id].rgb for p_id in points3d]) # (50000, 3)
+        # points_selection = onp.random.choice(
+        #     points.shape[0], gui_points.value, replace=False
+        # )
+        # points = points[points_selection]
+        # colors = colors[points_selection]
 
         print(onp.min(points), onp.max(points)) # -39.752517951310864 51.277373837644504
         print(onp.min(colors), onp.max(colors)) # 0 255
