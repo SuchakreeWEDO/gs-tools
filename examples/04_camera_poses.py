@@ -4,8 +4,20 @@ Example showing how we can detect new clients and read camera poses from them.
 """
 
 import time
-
 import viser
+import numpy as np
+
+def qvec2rotmat(qvec):
+    return np.array([
+        [1 - 2 * qvec[2]**2 - 2 * qvec[3]**2,
+         2 * qvec[1] * qvec[2] - 2 * qvec[0] * qvec[3],
+         2 * qvec[3] * qvec[1] + 2 * qvec[0] * qvec[2]],
+        [2 * qvec[1] * qvec[2] + 2 * qvec[0] * qvec[3],
+         1 - 2 * qvec[1]**2 - 2 * qvec[3]**2,
+         2 * qvec[2] * qvec[3] - 2 * qvec[0] * qvec[1]],
+        [2 * qvec[3] * qvec[1] - 2 * qvec[0] * qvec[2],
+         2 * qvec[2] * qvec[3] + 2 * qvec[0] * qvec[1],
+         1 - 2 * qvec[1]**2 - 2 * qvec[2]**2]])
 
 server = viser.ViserServer()
 server.world_axes.visible = True
@@ -31,9 +43,13 @@ while True:
     print("Connected client IDs", clients.keys())
 
     for id, client in clients.items():
+
+        R = np.transpose(qvec2rotmat(client.camera.wxyz))
+
         print(f"Camera pose for client {id}")
-        print(f"\twxyz: {client.camera.wxyz}")
-        print(f"\tposition: {client.camera.position}")
+        print(f"\twxyz (QW QX QY QZ): {client.camera.wxyz}")
+        print(f"\tR: {R}")
+        print(f"\tposition (T): {client.camera.position}")
         print(f"\tfov: {client.camera.fov}")
         print(f"\taspect: {client.camera.aspect}")
         print(f"\tlast update: {client.camera.update_timestamp}")
