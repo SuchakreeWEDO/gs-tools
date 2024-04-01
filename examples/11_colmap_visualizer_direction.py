@@ -20,6 +20,24 @@ from viser.extras.colmap import (
 )
 
 
+# points -> points array
+# matrix -> camera transform matrix
+def raycast_filter(points, matrix, size=0.9999):
+    camera_direction = matrix[:3, 2]
+    camera_position = matrix[:3, 3]
+    points_start = points - camera_position
+    points_norm = points_start/onp.linalg.norm(points_start, axis=-1)[:, onp.newaxis]
+
+    return onp.dot(points_norm, camera_direction) > size
+
+def distance_from_camera(points, camera_position):
+    distances = onp.linalg.norm(points - camera_position, axis=1)
+    nearest_index = onp.argmin(distances)
+    nearest_distance = distances[nearest_index]
+    nearest_position = points[nearest_index]
+    
+    return nearest_distance, nearest_position
+
 def main(
     colmap_path: Path = Path(__file__).parent / "assets/colmap_garden/sparse/0",
     images_path: Path = Path(__file__).parent / "assets/colmap_garden/images_8",
@@ -66,9 +84,22 @@ def main(
         step=1,
         initial_value=min(len(images), 100),
     )
-    gui_point_size = server.add_gui_number("Point size", initial_value=0.05)
 
-    gui_enable_filter = server.add_gui_checkbox("Filter", initial_value=False)
+    prev_button = server.add_gui_button("Prev Frame")
+    next_button = server.add_gui_button("Next Frame")
+    gui_count = server.add_gui_number("count", initial_value=0, visible=False)
+
+    @prev_button.on_click
+    def _(event: viser.GuiEvent) -> None:
+        gui_count.value -= 1
+        nonlocal need_update
+        need_update = True
+    
+    @next_button.on_click
+    def _(event: viser.GuiEvent) -> None:
+        gui_count.value += 1
+        nonlocal need_update
+        need_update = True
 
     def visualize_colmap() -> None:
         """Send all COLMAP elements to viser for visualization. This could be optimized
@@ -97,93 +128,89 @@ def main(
                     client.camera.wxyz = frame.wxyz
                     client.camera.position = frame.position
         
+        img_id = img_ids[gui_count.value % len(img_ids)]
+        img = images[img_id]
+        cam = cameras[img.camera_id]
 
-        for img_id in tqdm(img_ids):
-            img = images[img_id]
-            cam = cameras[img.camera_id]
+        # Skip images that don't exist.
+        image_filename = images_path / img.name
+        T_world_camera = tf.SE3.from_rotation_and_translation(
+            tf.SO3(img.qvec), img.tvec
+        ).inverse()
+        matrix = T_world_camera.as_matrix()
 
-            # Skip images that don't exist.
-            image_filename = images_path / img.name
-            if not image_filename.exists():
-                continue
 
-            T_world_camera = tf.SE3.from_rotation_and_translation(
-                tf.SO3(img.qvec), img.tvec
-            ).inverse()
-            m = T_world_camera.as_matrix()
-            direction = m[:3, 2]
-            frame = server.add_frame(
-                f"/colmap/frame_{img_id}",
-                wxyz=T_world_camera.rotation().wxyz,
-                position=T_world_camera.translation(),
-                axes_length=0.1,
-                axes_radius=0.005,
-            )
+        # For pinhole cameras, cam.params will be (fx, fy, cx, cy).
+        if cam.model != "PINHOLE":
+            print(f"Expected pinhole camera, but got {cam.model}")
 
-            # For pinhole cameras, cam.params will be (fx, fy, cx, cy).
-            if cam.model != "PINHOLE":
-                print(f"Expected pinhole camera, but got {cam.model}")
+        H, W = cam.height, cam.width
+        fy = cam.params[1]
+        image = iio.imread(image_filename)
+        image = image[::downsample_factor, ::downsample_factor]
 
-            H, W = cam.height, cam.width
-            fy = cam.params[1]
-            image = iio.imread(image_filename)
-            image = image[::downsample_factor, ::downsample_factor]
-            frustum = server.add_camera_frustum(
-                f"/colmap/frame_{img_id}/frustum",
-                fov=2 * onp.arctan2(H / 2, fy),
-                aspect=W / H,
-                scale=0.15,
-                image=image,
-            )
-            attach_callback(frustum, frame)
-
-            print(f"position: {T_world_camera.translation()}")
-            p = T_world_camera.translation()
-            start = onp.array([p[0], p[1], p[2]])
-            end = onp.array([direction[0], direction[1], direction[2]])
-            server.add_spline_cubic_bezier(
-                f"/Raycasting_line",
-                (tuple(start), tuple(start + end * 20)),
-                (tuple(start), tuple(start + end * 20)),
-                line_width=3.0,
-                color=(255, 0, 0),
-                segments=100,
-            )
-            # for i, point in enumerate(points):
-            #     if(i % 50 != 0):
-            #         continue
-            #     server.add_spline_cubic_bezier(
-            #         f"/Raycasting_line_{i}",
-            #         (tuple(start), tuple(point)),
-            #         (tuple(start), tuple(point)),
-            #         line_width=1.0,
-            #         color=(255, 0, 255),
-            #         segments=100,
-            # )
-            break
+        print(f"position: {T_world_camera.translation()}, {matrix[:3, 3]}")
         
-        print("-" * 20)
-        print("direction: ", direction)
-        points_np = onp.array(points)
-        # points_norm = (points/points.sum(axis=1).reshape(-1,1))
-        points_start = points - start
-        points_norm = points_start/onp.linalg.norm(points_start, axis=-1)[:, onp.newaxis]
-        print("norm: ", points_norm.shape,points_norm)
-        colors_np = onp.array(colors)
-        dot = onp.dot(points[:,:] - start, direction)
-        print("points:", dot.shape, dot[0], dot[1])
-        # points_np = points_np[onp.dot(onp.linalg.norm(points[:,:] - start, axis=0), direction) > 0.8]
-        # colors_np = colors_np[onp.dot(onp.linalg.norm(points[:,:] - start, axis=0), direction) > 0.8]
-        points_np = points_np[onp.dot(points_norm, direction) > 0.9999]
-        colors_np = colors_np[onp.dot(points_norm, direction) > 0.9999]
-        print("shape:", points_np.shape)
-        print("start:", start)
+        
+
+        filter = raycast_filter(points, matrix)
+        points_np = points[filter]
+        colors_np = colors[filter]
+
+
+        camera_direction = matrix[:3, 2]
+        camera_position = matrix[:3, 3]
+
+        distance, nearest_point = distance_from_camera(points_np, camera_position)
+        print("distance: ", distance)
+        print("nearest_point: ", nearest_point)
+
+        # display line
+        server.add_spline_cubic_bezier(
+            f"/Raycasting_line_near",
+            (tuple(camera_position), tuple(nearest_point)),
+            (tuple(camera_position), tuple(nearest_point)),
+            line_width=3.0,
+            color=(0, 255, 0),
+            segments=100,
+        )
+        server.add_spline_cubic_bezier(
+            f"/Raycasting_line",
+            (tuple(nearest_point), tuple(nearest_point + camera_direction * 100)),
+            (tuple(nearest_point), tuple(nearest_point + camera_direction * 100)),
+            line_width=3.0,
+            color=(255, 0, 0),
+            segments=100,
+        )
+        server.add_label("distance", text=distance, position=tuple((camera_position + nearest_point)/2))
+
+        server.add_point_cloud(
+            name="/colmap/original",
+            points=points,
+            colors=onp.full((points.shape[0], 3), [200, 200, 200]),
+            point_size=0.01,
+        )
         server.add_point_cloud(
             name="/colmap/pcd",
             points=points_np,
-            colors=colors_np,
-            point_size=gui_point_size.value,
+            colors=onp.full((points_np.shape[0], 3), [0, 0, 0]),
+            point_size=0.03,
         )
+        frustum = server.add_camera_frustum(
+            f"/colmap/frame_{img_id}/frustum",
+            fov=2 * onp.arctan2(H / 2, fy),
+            aspect=W / H,
+            scale=0.15,
+            image=image,
+        )
+        frame = server.add_frame(
+            f"/colmap/frame_{img_id}",
+            wxyz=T_world_camera.rotation().wxyz,
+            position=T_world_camera.translation(),
+            axes_length=0.1,
+            axes_radius=0.005,
+        )
+        attach_callback(frustum, frame)
 
     need_update = True
 
@@ -193,11 +220,6 @@ def main(
         need_update = True
 
     @gui_frames.on_update
-    def _(_) -> None:
-        nonlocal need_update
-        need_update = True
-
-    @gui_point_size.on_update
     def _(_) -> None:
         nonlocal need_update
         need_update = True
